@@ -1,13 +1,12 @@
 import abc
 import itertools
 from typing import Any
-from torch import nn
-from torch.nn import functional as F
-from torch import optim
 
 import numpy as np
 import torch
 from torch import distributions
+from torch import nn
+from torch import optim
 
 from cs285.infrastructure import pytorch_util as ptu
 from cs285.policies.base_policy import BasePolicy
@@ -81,7 +80,8 @@ class MLPPolicy(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
             observation = obs[None]
 
         # TODO return the action that the policy prescribes
-        raise NotImplementedError
+        actions = self(ptu.from_numpy(observation))
+        return ptu.to_numpy(actions.sample())
 
     # update/train this policy
     def update(self, observations, actions, **kwargs):
@@ -93,7 +93,13 @@ class MLPPolicy(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
     # return more flexible objects, such as a
     # `torch.distributions.Distribution` object. It's up to you!
     def forward(self, observation: torch.FloatTensor) -> Any:
-        raise NotImplementedError
+        if self.discrete:
+            outputs = self.logits_na(observation)
+            actions = distributions.Categorical(logits=outputs)
+        else:
+            outputs = self.mean_net(observation)
+            actions = distributions.Normal(outputs, torch.exp(self.logstd))
+        return actions
 
 
 #####################################################
@@ -109,7 +115,13 @@ class MLPPolicySL(MLPPolicy):
             adv_n=None, acs_labels_na=None, qvals=None
     ):
         # TODO: update the policy and return the loss
-        loss = TODO
+        actions = ptu.from_numpy(actions)
+        observations = ptu.from_numpy(observations)
+        action_predicted = self(observations).rsample()
+        loss = self.loss(action_predicted, actions)
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
         return {
             # You can add extra logging information here, but keep this line
             'Training Loss': ptu.to_numpy(loss),
